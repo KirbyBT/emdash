@@ -74,37 +74,42 @@ export async function searchPackages(
 	const hasCapability = typeof params.capability === "string" && params.capability.length > 0;
 	const publisherQuery = hasQuery ? parsePublisherQuery(params.q!) : null;
 
-	let rows: PackageRow[];
+	let rows: PackageRow[] = [];
 	if (publisherQuery) {
-		let identity: Awaited<ReturnType<SearchPackagesDeps["resolvePublisher"]>>;
+		let identity: Awaited<ReturnType<SearchPackagesDeps["resolvePublisher"]>> | undefined;
 		try {
 			identity = await deps.resolvePublisher(publisherQuery.identifier);
 		} catch {
-			if (!isDid(publisherQuery.identifier)) return json({ packages: [] });
-			identity = { did: publisherQuery.identifier };
+			if (isDid(publisherQuery.identifier)) identity = { did: publisherQuery.identifier };
 		}
-		const result = await session
-			.prepare(buildPublisherSearchSql(policy, hasCapability, publisherQuery.slug !== undefined))
-			.bind(
-				...buildPublisherSearchBindings(
-					policy,
-					identity.did,
-					publisherQuery.slug,
-					policy.mode === "allowlist" ? policy.allowlistJson : undefined,
-					hasCapability ? params.capability : undefined,
-					limit + 1,
-					offset,
-				),
-			)
-			.all<PackageRow>();
-		rows = result.results ?? [];
-		if (rows.length > 0 && identity.handle) {
-			if (!identity.identityCacheHit) {
-				await upsertPublisherHandle(env.DB, identity.did, identity.handle);
+		if (identity) {
+			const result = await session
+				.prepare(buildPublisherSearchSql(policy, hasCapability, publisherQuery.slug !== undefined))
+				.bind(
+					...buildPublisherSearchBindings(
+						policy,
+						identity.did,
+						publisherQuery.slug,
+						policy.mode === "allowlist" ? policy.allowlistJson : undefined,
+						hasCapability ? params.capability : undefined,
+						limit + 1,
+						offset,
+					),
+				)
+				.all<PackageRow>();
+			rows = result.results ?? [];
+			if (rows.length > 0 && identity.handle) {
+				if (!identity.identityCacheHit) {
+					await upsertPublisherHandle(env.DB, identity.did, identity.handle);
+				}
+				for (const row of rows) row.handle = identity.handle;
 			}
-			for (const row of rows) row.handle = identity.handle;
 		}
-	} else if (hasQuery) {
+	}
+
+	// Handle-shaped queries are often ordinary search terms (`standard.site`, `node.js`),
+	// so they fall back to full-text search when no publisher's packages match.
+	if (hasQuery && rows.length === 0) {
 		const ftsQuery = quoteFtsQuery(params.q!);
 		const result = await session
 			.prepare(buildFtsSearchSql(policy, hasCapability))
@@ -120,7 +125,7 @@ export async function searchPackages(
 			)
 			.all<PackageRow>();
 		rows = result.results ?? [];
-	} else {
+	} else if (!hasQuery) {
 		// No query → ordered list of all packages, label-filtered. last_updated
 		// DESC keeps the "what's new" view sensible for an empty search box.
 		const result = await session
