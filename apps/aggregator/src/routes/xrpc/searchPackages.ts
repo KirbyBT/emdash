@@ -15,7 +15,9 @@
  * cheaply when no rows match. See plan §Search.
  *
  * A query that is exactly a handle, DID, or either identity plus `/slug`
- * resolves the publisher first and queries by stable DID. Other queries use
+ * resolves the publisher first and queries by stable DID. A bare handle or
+ * DID that matches no publisher's packages falls back to FTS5, since dotted
+ * terms like `standard.site` are also ordinary search text. Other queries use
  * FTS5 with defensive quoting. Empty queries return all visible packages.
  */
 
@@ -107,9 +109,10 @@ export async function searchPackages(
 		}
 	}
 
-	// Handle-shaped queries are often ordinary search terms (`standard.site`, `node.js`),
-	// so they fall back to full-text search when no publisher's packages match.
-	if (hasQuery && rows.length === 0) {
+	// Bare handle-shaped queries are often ordinary search terms (`standard.site`, `node.js`),
+	// so they fall back to full-text search when no publisher's packages match. A `/slug`
+	// query names one exact package and gets no fallback.
+	if (hasQuery && rows.length === 0 && publisherQuery?.slug === undefined) {
 		const ftsQuery = quoteFtsQuery(params.q!);
 		const result = await session
 			.prepare(buildFtsSearchSql(policy, hasCapability))

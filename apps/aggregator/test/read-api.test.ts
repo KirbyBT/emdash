@@ -595,6 +595,18 @@ describe("searchPackages", () => {
 		expect(body.packages.map((pkg) => pkg.slug)).toEqual(["atproto"]);
 	});
 
+	it("does not fall back to FTS for an exact handle and slug with no match", async () => {
+		await seedPackage({ slug: "gallery", keywords: ["publisher.example/nonexistent"] });
+
+		const res = await searchPackages(
+			env,
+			{ q: "publisher.example/nonexistent" },
+			{ resolvePublisher: async () => ({ did: DID_A, handle: "publisher.example" }) },
+		);
+
+		await expect(res.json()).resolves.toEqual({ packages: [] });
+	});
+
 	it("prefers publisher matches over FTS for a resolved handle", async () => {
 		await seedPackage({ slug: "gallery" });
 		await seedPackage({ did: DID_B, slug: "mentions", keywords: ["publisher.example"] });
