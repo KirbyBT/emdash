@@ -698,6 +698,21 @@ describe("searchPackages", () => {
 		expect(body.packages.map((p) => p.slug)).toEqual(["bulletin"]);
 	});
 
+	it.each(["newslet", "newslet*", "newslet**"])(
+		"matches a single partly typed word as a prefix: %s",
+		async (query) => {
+			await seedPackage({ slug: "bulletin", name: "Bulletin", description: "Email newsletters" });
+
+			const res = await SELF.fetch(
+				`https://test/xrpc/${NSID.aggregatorSearchPackages}?q=${encodeURIComponent(query)}`,
+			);
+
+			expect(res.status).toBe(200);
+			const body = (await res.json()) as { packages: Array<{ slug: string }> };
+			expect(body.packages.map((p) => p.slug)).toEqual(["bulletin"]);
+		},
+	);
+
 	it("returns no matches for a query with no word characters", async () => {
 		await seedPackage({ slug: "demo", name: "Demo" });
 
